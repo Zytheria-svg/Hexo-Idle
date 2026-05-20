@@ -127,19 +127,18 @@ async function accountLogin(){
     localStorage.setItem(TOKEN_KEY,res.token);
     localStorage.setItem(ACCT_KEY,res.username);
     const local=loadGame();
-    const localTs=local?.ts||0;
-    const cloudTs=res.updatedAt?new Date(res.updatedAt).getTime():0;
-    if(res.saveData&&res.saveData.level&&cloudTs>localTs+60000){
-      // Cloud is newer — restore it
+    if(local&&local.G&&local.G.level){
+      // Local save exists — always push it to cloud (this device is the active one)
+      await apiFetch('/api/save/sync',{token:res.token,saveData:local.G});
+      setCloudStatus('✓ Logged in as '+res.username+' · save synced',true);
+      renderAccountUI();
+    } else if(res.saveData&&res.saveData.level){
+      // No local save — restore from cloud
+      const cloudTs=res.updatedAt?new Date(res.updatedAt).getTime():Date.now();
       localStorage.setItem(SK,JSON.stringify({G:res.saveData,ts:cloudTs}));
       setCloudStatus('✓ Logged in! Loading cloud save…',true);
       renderAccountUI();
       setTimeout(()=>location.reload(),800);
-    } else if(local&&local.G&&local.G.level){
-      // Local save exists and is newer — push it to cloud
-      await apiFetch('/api/save/sync',{token:res.token,saveData:local.G});
-      setCloudStatus('✓ Logged in as '+res.username+' · save synced',true);
-      renderAccountUI();
     } else {
       setCloudStatus('✓ Logged in as '+res.username,true);
       renderAccountUI();
@@ -165,19 +164,17 @@ async function cloudAutoSave(){
   }catch(e){setCloudStatus('⚠ Sync failed',false);}
 }
 
-// On startup: auto-restore cloud save if logged in and cloud is newer
+// On startup: auto-restore cloud save only if no local save exists on this device
 async function cloudAutoLoad(){
   const token=getToken();if(!token)return;
   try{
+    const local=loadGame();
+    if(local&&local.G&&local.G.level)return; // Local save exists — don't overwrite it
     const res=await apiFetch('/api/save/load',{token});
     if(res.error||!res.saveData)return;
-    const local=loadGame();
-    const cloudTs=new Date(res.updatedAt).getTime();
-    const localTs=local?.ts||0;
-    if(!local||cloudTs>localTs+60000){
-      localStorage.setItem(SK,JSON.stringify({G:res.saveData,ts:cloudTs}));
-      location.reload();
-    }
+    const cloudTs=res.updatedAt?new Date(res.updatedAt).getTime():Date.now();
+    localStorage.setItem(SK,JSON.stringify({G:res.saveData,ts:cloudTs}));
+    location.reload();
   }catch(e){}
 }
 

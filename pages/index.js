@@ -62,8 +62,19 @@ export default function Home() {
           <span style="font-size:12px;font-weight:600;color:var(--txt);font-family:var(--font-d);letter-spacing:.3px">Cloud Sync</span>
           <span style="font-size:9.5px;color:var(--green3);font-style:italic">— automatic</span>
         </div>
-        <div style="font-size:9.5px;color:var(--txt3);font-family:var(--font-m);margin-bottom:8px;padding:5px 8px;background:var(--bg3);border-radius:5px;line-height:1.6">Your save syncs to the cloud automatically as you play. Open the game on any device using the <b>same internet connection</b> and it will restore your save automatically.</div>
-        <div style="font-size:9px;color:var(--txt3);font-family:var(--font-m);margin-bottom:8px;padding:4px 8px;background:var(--bg3);border-radius:5px">🔑 Cloud Key: <span id="cloud-key-val" style="color:var(--gold2);font-family:var(--font-d);letter-spacing:.5px">detecting…</span></div>
+        <div style="font-size:9.5px;color:var(--txt3);font-family:var(--font-m);margin-bottom:8px;padding:5px 8px;background:var(--bg3);border-radius:5px;line-height:1.6">Your save syncs automatically across <b>any network</b>. To play on another device, copy your Sync Code and paste it there.</div>
+        <div style="font-size:9px;color:var(--txt3);font-family:var(--font-m);margin-bottom:6px;padding:5px 8px;background:var(--bg3);border-radius:5px;display:flex;align-items:center;gap:6px">
+          <span>🔑 Sync Code:</span>
+          <span id="cloud-key-val" style="color:var(--gold2);font-family:var(--font-d);letter-spacing:.5px;flex:1">loading…</span>
+          <button class="btn btn-primary" style="font-size:9px;padding:2px 7px" onclick="copyCloudCode()">Copy</button>
+        </div>
+        <div style="font-size:9px;color:var(--txt3);font-family:var(--font-m);margin-bottom:6px;padding:5px 8px;background:var(--bg3);border-radius:5px">
+          <div style="margin-bottom:5px;color:var(--txt2)">🔗 Link another device — paste its Sync Code:</div>
+          <div style="display:flex;gap:5px">
+            <input id="cloud-link-inp" type="text" placeholder="Paste sync code here…" style="flex:1;font-size:10px;padding:4px 7px;background:var(--bg);border:1px solid var(--bord2);border-radius:4px;color:var(--txt);font-family:var(--font-m)">
+            <button class="btn btn-gold" style="font-size:10px;padding:4px 9px" onclick="cloudLinkDevice()">Link</button>
+          </div>
+        </div>
         <div style="display:flex;gap:6px;margin-bottom:6px">
           <button class="btn btn-primary" style="flex:1;font-size:11px;padding:6px 0" onclick="cloudForceSave()">☁ Sync Now</button>
           <button class="btn btn-gold" style="flex:1;font-size:11px;padding:6px 0" onclick="cloudForceLoad()">⬇ Restore from Cloud</button>

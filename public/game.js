@@ -81,28 +81,43 @@ function setCloudStatus(msg,ok){
 
 // Get or generate a stable per-device cloud key, then try to enrich with public IP
 let _cloudKey=null;
-async function getCloudKey(){
+function getCloudKey(){
   if(_cloudKey)return _cloudKey;
-  try{
-    const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),3000);
-    const r=await fetch('https://api.ipify.org?format=json',{signal:ctrl.signal});
-    clearTimeout(t);
-    const d=await r.json();
-    _cloudKey='ip_'+d.ip.replace(/[^a-zA-Z0-9]/g,'_');
-  }catch(e){
-    let uid=localStorage.getItem('hexo_cloud_uid');
-    if(!uid){uid='dev_'+Math.random().toString(36).slice(2,12);localStorage.setItem('hexo_cloud_uid',uid);}
-    _cloudKey=uid;
-  }
+  let uid=localStorage.getItem('hexo_cloud_uid');
+  if(!uid){uid='hx_'+Math.random().toString(36).slice(2,8)+Math.random().toString(36).slice(2,8);localStorage.setItem('hexo_cloud_uid',uid);}
+  _cloudKey=uid;
   const el=document.getElementById('cloud-key-val');if(el)el.textContent=_cloudKey;
   return _cloudKey;
+}
+
+function copyCloudCode(){
+  const key=getCloudKey();
+  navigator.clipboard.writeText(key).then(()=>setCloudStatus('✓ Code copied!',true)).catch(()=>setCloudStatus('Code: '+key,null));
+}
+
+async function cloudLinkDevice(){
+  const inp=document.getElementById('cloud-link-inp');
+  if(!inp)return;
+  const code=inp.value.trim();
+  if(!code){setCloudStatus('Enter a sync code first.',false);return;}
+  const sb=getSB();if(!sb){setCloudStatus('Supabase not configured.',false);return;}
+  setCloudStatus('⏳ Looking up save…',null);
+  try{
+    const{data,error}=await sb.from('cloud_saves').select('*').eq('slot_name',code).maybeSingle();
+    if(error)throw error;
+    if(!data||!data.save_data){setCloudStatus('✗ No save found for that code.',false);return;}
+    localStorage.setItem('hexo_cloud_uid',code);
+    localStorage.setItem(SK,JSON.stringify({G:data.save_data,ts:Date.now()}));
+    setCloudStatus('✓ Linked! Loading save…',true);
+    setTimeout(()=>location.reload(),800);
+  }catch(e){setCloudStatus('✗ Failed: '+e.message,false);}
 }
 
 // Silent auto-save — called from queueSave()
 async function cloudAutoSave(){
   if(!G)return;
   const sb=getSB();if(!sb)return;
-  const key=await getCloudKey();if(!key)return;
+  const key=getCloudKey();if(!key)return;
   try{
     const row={slot_name:key,char_name:G.charName||'Hero',level:G.level||1,cls:G.cls||'rogue',
       save_data:G,protected:false,pin:null,updated_at:new Date().toISOString()};
@@ -112,18 +127,38 @@ async function cloudAutoSave(){
   }catch(e){setCloudStatus('⚠ Sync failed',false);}
 }
 
-// On startup: if cloud save is newer than local, auto-restore it
+// On startup: auto-restore cloud save if newer than local
 async function cloudAutoLoad(){
   const sb=getSB();if(!sb)return;
-  const key=await getCloudKey();if(!key)return;
+  const key=getCloudKey();if(!key)return;
   try{
     let{data}=await sb.from('cloud_saves').select('*').eq('slot_name',key).maybeSingle();
+
+    // Migration: check old IP-based key format for existing players
+    if(!data||!data.save_data){
+      try{
+        const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),3000);
+        const r=await fetch('https://api.ipify.org?format=json',{signal:ctrl.signal});
+        clearTimeout(t);
+        const d=await r.json();
+        const oldKey='ip_'+d.ip.replace(/[^a-zA-Z0-9]/g,'_');
+        const old=await sb.from('cloud_saves').select('*').eq('slot_name',oldKey).maybeSingle();
+        if(old.data&&old.data.save_data){
+          // Migrate to new UUID key
+          const row={slot_name:key,char_name:old.data.char_name,level:old.data.level,
+            cls:old.data.cls,save_data:old.data.save_data,protected:false,pin:null,
+            updated_at:old.data.updated_at};
+          await sb.from('cloud_saves').upsert(row,{onConflict:'slot_name'});
+          await sb.from('cloud_saves').delete().eq('slot_name',oldKey);
+          data=old.data;
+        }
+      }catch(e){}
+    }
 
     if(!data||!data.save_data)return;
     const local=loadGame();
     const cloudTs=new Date(data.updated_at).getTime();
     const localTs=local?.ts||0;
-    // Restore cloud save if it's more than 60s newer than local
     if(!local||cloudTs>localTs+60000){
       localStorage.setItem(SK,JSON.stringify({G:data.save_data,ts:cloudTs}));
       location.reload();
@@ -141,12 +176,12 @@ async function cloudForceSave(){
 // Manual restore from settings
 async function cloudForceLoad(){
   const sb=getSB();if(!sb){setCloudStatus('Supabase not configured.',false);return;}
-  const key=await getCloudKey();if(!key)return;
+  const key=getCloudKey();if(!key)return;
   setCloudStatus('⏳ Loading from cloud…',null);
   try{
     const{data,error}=await sb.from('cloud_saves').select('*').eq('slot_name',key).maybeSingle();
     if(error)throw error;
-    if(!data||!data.save_data){setCloudStatus('✗ No cloud save found for your connection.',false);return;}
+    if(!data||!data.save_data){setCloudStatus('✗ No cloud save found.',false);return;}
     localStorage.setItem(SK,JSON.stringify({G:data.save_data,ts:Date.now()}));
     setCloudStatus('✓ Restored! Restarting…',true);
     setTimeout(()=>location.reload(),800);

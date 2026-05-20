@@ -135,10 +135,10 @@ async function accountLogin(){
       setCloudStatus('✓ Logged in! Loading cloud save…',true);
       renderAccountUI();
       setTimeout(()=>location.reload(),800);
-    } else if(local&&G){
-      // Local is newer — push it up to cloud immediately
-      await apiFetch('/api/save/sync',{token:res.token,saveData:G});
-      setCloudStatus('✓ Logged in as '+res.username+' · local save synced',true);
+    } else if(local&&local.G&&local.G.level){
+      // Local save exists and is newer — push it to cloud
+      await apiFetch('/api/save/sync',{token:res.token,saveData:local.G});
+      setCloudStatus('✓ Logged in as '+res.username+' · save synced',true);
       renderAccountUI();
     } else {
       setCloudStatus('✓ Logged in as '+res.username,true);

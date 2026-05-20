@@ -83,21 +83,21 @@ function setCloudStatus(msg,ok){
 let _cloudKey=null;
 async function getCloudKey(){
   if(_cloudKey)return _cloudKey;
-  // Try to get public IP for cross-device linking
+  // Stable per-browser UUID — generated once, stored in localStorage forever
+  let uid=localStorage.getItem('hexo_cloud_uid');
+  if(!uid){uid='u_'+Math.random().toString(36).slice(2,10)+Math.random().toString(36).slice(2,10);localStorage.setItem('hexo_cloud_uid',uid);}
+  // Try to mix in public IP so the same browser syncs across devices on the same connection
   try{
     const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),3000);
     const r=await fetch('https://api.ipify.org?format=json',{signal:ctrl.signal});
     clearTimeout(t);
     const d=await r.json();
-    // IP-based key so any device on the same connection auto-syncs
-    _cloudKey='ip_'+d.ip.replace(/[^a-zA-Z0-9]/g,'_');
+    const ip=d.ip.replace(/[^a-zA-Z0-9]/g,'_');
+    _cloudKey=ip+'_'+uid;
   }catch(e){
-    // Fallback: stable per-browser UUID (works offline / if IP fetch fails)
-    let uid=localStorage.getItem('hexo_cloud_uid');
-    if(!uid){uid='dev_'+Math.random().toString(36).slice(2,12);localStorage.setItem('hexo_cloud_uid',uid);}
+    // Offline / IP fetch failed — fall back to UUID-only (still unique per browser)
     _cloudKey=uid;
   }
-  // Show key in settings panel if open
   const el=document.getElementById('cloud-key-val');if(el)el.textContent=_cloudKey;
   return _cloudKey;
 }

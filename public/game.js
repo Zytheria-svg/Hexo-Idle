@@ -126,20 +126,24 @@ async function accountLogin(){
     if(res.error){setCloudStatus('✗ '+res.error,false);return;}
     localStorage.setItem(TOKEN_KEY,res.token);
     localStorage.setItem(ACCT_KEY,res.username);
-    if(res.saveData&&res.saveData.level){
-      const local=loadGame();
-      const cloudTs=new Date(res.updatedAt).getTime();
-      const localTs=local?.ts||0;
-      if(!local||cloudTs>localTs+60000){
-        localStorage.setItem(SK,JSON.stringify({G:res.saveData,ts:cloudTs}));
-        setCloudStatus('✓ Logged in! Loading save…',true);
-        renderAccountUI();
-        setTimeout(()=>location.reload(),800);
-        return;
-      }
+    const local=loadGame();
+    const localTs=local?.ts||0;
+    const cloudTs=res.updatedAt?new Date(res.updatedAt).getTime():0;
+    if(res.saveData&&res.saveData.level&&cloudTs>localTs+60000){
+      // Cloud is newer — restore it
+      localStorage.setItem(SK,JSON.stringify({G:res.saveData,ts:cloudTs}));
+      setCloudStatus('✓ Logged in! Loading cloud save…',true);
+      renderAccountUI();
+      setTimeout(()=>location.reload(),800);
+    } else if(local&&G){
+      // Local is newer — push it up to cloud immediately
+      await apiFetch('/api/save/sync',{token:res.token,saveData:G});
+      setCloudStatus('✓ Logged in as '+res.username+' · local save synced',true);
+      renderAccountUI();
+    } else {
+      setCloudStatus('✓ Logged in as '+res.username,true);
+      renderAccountUI();
     }
-    setCloudStatus('✓ Logged in as '+res.username,true);
-    renderAccountUI();
   }catch(e){setCloudStatus('✗ '+e.message,false);}
 }
 
@@ -192,7 +196,14 @@ async function cloudForceLoad(){
     const res=await apiFetch('/api/save/load',{token});
     if(res.error){setCloudStatus('✗ '+res.error,false);return;}
     if(!res.saveData){setCloudStatus('✗ No cloud save found.',false);return;}
-    localStorage.setItem(SK,JSON.stringify({G:res.saveData,ts:Date.now()}));
+    const local=loadGame();
+    const localTs=local?.ts||0;
+    const cloudTs=new Date(res.updatedAt).getTime();
+    // Warn if cloud save is older than local
+    if(localTs>cloudTs+60000){
+      if(!confirm('Your local save is newer than the cloud save. Restore anyway and lose local progress?'))return;
+    }
+    localStorage.setItem(SK,JSON.stringify({G:res.saveData,ts:cloudTs}));
     setCloudStatus('✓ Restored! Restarting…',true);
     setTimeout(()=>location.reload(),800);
   }catch(e){setCloudStatus('✗ Restore failed: '+e.message,false);}

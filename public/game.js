@@ -62,40 +62,29 @@ window.addEventListener('beforeunload',()=>{if(G)saveGame();});
 window.addEventListener('load',()=>{setTimeout(cloudAutoLoad,500);});
 
 // ═══════════════════════════════════════
-// CLOUD SAVE / LOAD — Supabase backend
+// CLOUD SAVE / LOAD — API routes (server-side)
 // ═══════════════════════════════════════
-let _sb=null;
-function getSB(){
-  if(!_sb){
-    const url=window.__SB_URL,key=window.__SB_KEY;
-    if(!url||!key){console.warn('Supabase env vars not set');return null;}
-    _sb=window.supabase.createClient(url,key);
-  }
-  return _sb;
-}
-
 function setCloudStatus(msg,ok){
   const el=document.getElementById('cloud-status');
   if(el){el.textContent=msg;el.style.color=ok===true?'var(--green3)':ok===false?'var(--red3)':'var(--txt3)';}
 }
 
-// Get or generate a stable per-device cloud key, then try to enrich with public IP
+async function apiFetch(path,body){
+  const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  return r.json();
+}
+
 // ═══════════════════════════════════════
 // ACCOUNT SYSTEM
 // ═══════════════════════════════════════
+const TOKEN_KEY='hexo_token';
 const ACCT_KEY='hexo_account';
+function getToken(){return localStorage.getItem(TOKEN_KEY)||null;}
 function getLoggedInUser(){return localStorage.getItem(ACCT_KEY)||null;}
 
 async function hashPassword(pass){
   const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('hexo_'+pass));
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-}
-
-function setCloudStatus(msg,ok){
-  const el=document.getElementById('cloud-status');
-  if(!el)return;
-  el.textContent=msg;
-  el.style.color=ok===true?'var(--green3)':ok===false?'var(--red3)':'var(--txt3)';
 }
 
 function renderAccountUI(){
@@ -109,7 +98,6 @@ function renderAccountUI(){
 }
 
 async function accountRegister(){
-  const sb=getSB();if(!sb){setCloudStatus('Supabase not configured.',false);return;}
   const u=(document.getElementById('acct-user-inp')?.value||'').trim().toLowerCase();
   const p=document.getElementById('acct-pass-inp')?.value||'';
   if(!u||u.length<3){setCloudStatus('Username must be at least 3 characters.',false);return;}
@@ -117,53 +105,46 @@ async function accountRegister(){
   if(!/^[a-z0-9_]+$/.test(u)){setCloudStatus('Username: letters, numbers and _ only.',false);return;}
   setCloudStatus('⏳ Creating account…',null);
   try{
-    const{data:existing}=await sb.from('cloud_saves').select('slot_name').eq('slot_name',u).maybeSingle();
-    if(existing){setCloudStatus('✗ Username already taken.',false);return;}
     const hash=await hashPassword(p);
-    const row={slot_name:u,char_name:'',level:1,cls:'',
-      save_data:{__pwHash:hash},protected:false,pin:null,updated_at:new Date().toISOString()};
-    const{error}=await sb.from('cloud_saves').insert(row);
-    if(error)throw error;
-    localStorage.setItem(ACCT_KEY,u);
-    setCloudStatus('✓ Account created! Logged in as '+u,true);
+    const res=await apiFetch('/api/account/register',{username:u,passwordHash:hash});
+    if(res.error){setCloudStatus('✗ '+res.error,false);return;}
+    localStorage.setItem(TOKEN_KEY,res.token);
+    localStorage.setItem(ACCT_KEY,res.username);
+    setCloudStatus('✓ Account created! Logged in as '+res.username,true);
     renderAccountUI();
   }catch(e){setCloudStatus('✗ '+e.message,false);}
 }
 
 async function accountLogin(){
-  const sb=getSB();if(!sb){setCloudStatus('Supabase not configured.',false);return;}
   const u=(document.getElementById('acct-user-inp')?.value||'').trim().toLowerCase();
   const p=document.getElementById('acct-pass-inp')?.value||'';
   if(!u||!p){setCloudStatus('Enter username and password.',false);return;}
   setCloudStatus('⏳ Logging in…',null);
   try{
-    const{data,error}=await sb.from('cloud_saves').select('*').eq('slot_name',u).maybeSingle();
-    if(error)throw error;
-    if(!data){setCloudStatus('✗ Account not found.',false);return;}
     const hash=await hashPassword(p);
-    const storedHash=data.save_data?.__pwHash;
-    if(!storedHash||storedHash!==hash){setCloudStatus('✗ Wrong password.',false);return;}
-    localStorage.setItem(ACCT_KEY,u);
-    // Load cloud save if it has actual game data
-    const saveData={...data.save_data};delete saveData.__pwHash;
-    if(saveData&&saveData.level){
+    const res=await apiFetch('/api/account/login',{username:u,passwordHash:hash});
+    if(res.error){setCloudStatus('✗ '+res.error,false);return;}
+    localStorage.setItem(TOKEN_KEY,res.token);
+    localStorage.setItem(ACCT_KEY,res.username);
+    if(res.saveData&&res.saveData.level){
       const local=loadGame();
-      const cloudTs=new Date(data.updated_at).getTime();
+      const cloudTs=new Date(res.updatedAt).getTime();
       const localTs=local?.ts||0;
       if(!local||cloudTs>localTs+60000){
-        localStorage.setItem(SK,JSON.stringify({G:saveData,ts:cloudTs}));
+        localStorage.setItem(SK,JSON.stringify({G:res.saveData,ts:cloudTs}));
         setCloudStatus('✓ Logged in! Loading save…',true);
         renderAccountUI();
         setTimeout(()=>location.reload(),800);
         return;
       }
     }
-    setCloudStatus('✓ Logged in as '+u,true);
+    setCloudStatus('✓ Logged in as '+res.username,true);
     renderAccountUI();
   }catch(e){setCloudStatus('✗ '+e.message,false);}
 }
 
 function accountLogout(){
+  localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(ACCT_KEY);
   setCloudStatus('Logged out.',null);
   renderAccountUI();
@@ -172,34 +153,25 @@ function accountLogout(){
 // Silent auto-save — called from queueSave()
 async function cloudAutoSave(){
   if(!G)return;
-  const sb=getSB();if(!sb)return;
-  const user=getLoggedInUser();if(!user)return;
+  const token=getToken();if(!token)return;
   try{
-    // Preserve password hash when saving
-    const{data:existing}=await sb.from('cloud_saves').select('save_data').eq('slot_name',user).maybeSingle();
-    const pwHash=existing?.save_data?.__pwHash||'';
-    const row={slot_name:user,char_name:G.charName||'Hero',level:G.level||1,cls:G.cls||'rogue',
-      save_data:{...G,__pwHash:pwHash},protected:false,pin:null,updated_at:new Date().toISOString()};
-    const{error}=await sb.from('cloud_saves').upsert(row,{onConflict:'slot_name'});
-    if(error)throw error;
+    const res=await apiFetch('/api/save/sync',{token,saveData:G});
+    if(res.error){setCloudStatus('⚠ Sync failed: '+res.error,false);return;}
     setCloudStatus('☁ Synced just now',true);
   }catch(e){setCloudStatus('⚠ Sync failed',false);}
 }
 
 // On startup: auto-restore cloud save if logged in and cloud is newer
 async function cloudAutoLoad(){
-  const sb=getSB();if(!sb)return;
-  const user=getLoggedInUser();if(!user)return;
+  const token=getToken();if(!token)return;
   try{
-    const{data}=await sb.from('cloud_saves').select('*').eq('slot_name',user).maybeSingle();
-    if(!data||!data.save_data)return;
-    const saveData={...data.save_data};delete saveData.__pwHash;
-    if(!saveData||!saveData.level)return;
+    const res=await apiFetch('/api/save/load',{token});
+    if(res.error||!res.saveData)return;
     const local=loadGame();
-    const cloudTs=new Date(data.updated_at).getTime();
+    const cloudTs=new Date(res.updatedAt).getTime();
     const localTs=local?.ts||0;
     if(!local||cloudTs>localTs+60000){
-      localStorage.setItem(SK,JSON.stringify({G:saveData,ts:cloudTs}));
+      localStorage.setItem(SK,JSON.stringify({G:res.saveData,ts:cloudTs}));
       location.reload();
     }
   }catch(e){}
@@ -208,21 +180,19 @@ async function cloudAutoLoad(){
 // Manual force-sync
 async function cloudForceSave(){
   if(!G){setCloudStatus('No active game to sync.',false);return;}
-  if(!getLoggedInUser()){setCloudStatus('Log in to sync.',false);return;}
+  if(!getToken()){setCloudStatus('Log in to sync.',false);return;}
   setCloudStatus('⏳ Syncing…',null);
   await cloudAutoSave();
 }
 
 async function cloudForceLoad(){
-  const sb=getSB();if(!sb){setCloudStatus('Supabase not configured.',false);return;}
-  const user=getLoggedInUser();if(!user){setCloudStatus('Log in first.',false);return;}
+  const token=getToken();if(!token){setCloudStatus('Log in first.',false);return;}
   setCloudStatus('⏳ Loading from cloud…',null);
   try{
-    const{data,error}=await sb.from('cloud_saves').select('*').eq('slot_name',user).maybeSingle();
-    if(error)throw error;
-    if(!data||!data.save_data){setCloudStatus('✗ No cloud save found.',false);return;}
-    const saveData={...data.save_data};delete saveData.__pwHash;
-    localStorage.setItem(SK,JSON.stringify({G:saveData,ts:Date.now()}));
+    const res=await apiFetch('/api/save/load',{token});
+    if(res.error){setCloudStatus('✗ '+res.error,false);return;}
+    if(!res.saveData){setCloudStatus('✗ No cloud save found.',false);return;}
+    localStorage.setItem(SK,JSON.stringify({G:res.saveData,ts:Date.now()}));
     setCloudStatus('✓ Restored! Restarting…',true);
     setTimeout(()=>location.reload(),800);
   }catch(e){setCloudStatus('✗ Restore failed: '+e.message,false);}

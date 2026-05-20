@@ -127,16 +127,27 @@ async function accountLogin(){
     localStorage.setItem(TOKEN_KEY,res.token);
     localStorage.setItem(ACCT_KEY,res.username);
     const local=loadGame();
-    if(local&&local.G&&local.G.level){
-      // Local save exists — always push it to cloud (this device is the active one)
+    const hasLocal=local&&local.G&&local.G.level;
+    const hasCloud=res.saveData&&res.saveData.level;
+    const cloudTs=res.updatedAt?new Date(res.updatedAt).getTime():0;
+    // Use gold+level as a tiebreaker — whichever save has more progress wins
+    const localGold=(local?.G?.gold||0)+(local?.G?.level||0)*1000;
+    const cloudGold=(res.saveData?.gold||0)+(res.saveData?.level||0)*1000;
+    if(hasLocal&&hasCloud&&cloudGold>localGold+5000){
+      // Cloud has significantly more progress — restore it
+      localStorage.setItem(SK,JSON.stringify({G:res.saveData,ts:cloudTs}));
+      setCloudStatus('✓ Logged in! Cloud save restored.',true);
+      renderAccountUI();
+      setTimeout(()=>location.reload(),800);
+    } else if(hasLocal){
+      // Local has progress (or is equal/better) — push to cloud
       await apiFetch('/api/save/sync',{token:res.token,saveData:local.G});
       setCloudStatus('✓ Logged in as '+res.username+' · save synced',true);
       renderAccountUI();
-    } else if(res.saveData&&res.saveData.level){
+    } else if(hasCloud){
       // No local save — restore from cloud
-      const cloudTs=res.updatedAt?new Date(res.updatedAt).getTime():Date.now();
       localStorage.setItem(SK,JSON.stringify({G:res.saveData,ts:cloudTs}));
-      setCloudStatus('✓ Logged in! Loading cloud save…',true);
+      setCloudStatus('✓ Logged in! Cloud save restored.',true);
       renderAccountUI();
       setTimeout(()=>location.reload(),800);
     } else {
@@ -164,17 +175,20 @@ async function cloudAutoSave(){
   }catch(e){setCloudStatus('⚠ Sync failed',false);}
 }
 
-// On startup: auto-restore cloud save only if no local save exists on this device
+// On startup: auto-restore cloud save if it has more progress than local
 async function cloudAutoLoad(){
   const token=getToken();if(!token)return;
   try{
-    const local=loadGame();
-    if(local&&local.G&&local.G.level)return; // Local save exists — don't overwrite it
     const res=await apiFetch('/api/save/load',{token});
     if(res.error||!res.saveData)return;
-    const cloudTs=res.updatedAt?new Date(res.updatedAt).getTime():Date.now();
-    localStorage.setItem(SK,JSON.stringify({G:res.saveData,ts:cloudTs}));
-    location.reload();
+    const local=loadGame();
+    const cloudTs=res.updatedAt?new Date(res.updatedAt).getTime():0;
+    const cloudGold=(res.saveData?.gold||0)+(res.saveData?.level||0)*1000;
+    const localGold=(local?.G?.gold||0)+(local?.G?.level||0)*1000;
+    if(!local||!local.G||!local.G.level||cloudGold>localGold+5000){
+      localStorage.setItem(SK,JSON.stringify({G:res.saveData,ts:cloudTs}));
+      location.reload();
+    }
   }catch(e){}
 }
 
@@ -897,9 +911,16 @@ function startGame(cls){
 }
 
 function confirmNewGame(){
-  if(!confirm('Start a new game? All progress will be lost.'))return;
+  const loggedIn=!!getToken();
+  const msg=loggedIn
+    ?'Start a new game? Local progress will be lost.\n\nYour CLOUD save is safe — you can restore it anytime from the account panel.'
+    :'Start a new game? All progress will be lost.';
+  if(!confirm(msg))return;
   clearTimeout(cTimer);G=null;paused=false;abCDs=[0,0,0];shieldHits=0;shadowReady=false;heroStatus={};enemyStatus={};
-  localStorage.removeItem(SK);closeSettings();initTitle();showScreen('s-title');
+  localStorage.removeItem(SK);
+  // Log out to prevent the new empty game from overwriting cloud save
+  if(loggedIn){localStorage.removeItem(TOKEN_KEY);localStorage.removeItem(ACCT_KEY);}
+  closeSettings();initTitle();showScreen('s-title');
 }
 
 // ═══════════════════════════════════════

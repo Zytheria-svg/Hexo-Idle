@@ -121,7 +121,27 @@ async function cloudAutoLoad(){
   const sb=getSB();if(!sb)return;
   const key=await getCloudKey();if(!key)return;
   try{
-    const{data}=await sb.from('cloud_saves').select('*').eq('slot_name',key).maybeSingle();
+    let{data}=await sb.from('cloud_saves').select('*').eq('slot_name',key).maybeSingle();
+
+    // Migration: if no save found under new key, check for old IP-only key
+    if(!data||!data.save_data){
+      const ipMatch=key.match(/^(\d+_\d+_\d+_\d+)_u_/)||key.match(/^(ip_[^_]+(?:_[^_]+){3})_u_/);
+      // Build old-format key: ip_x_x_x_x derived from the current IP portion
+      const ipPart=key.split('_u_')[0];
+      if(ipPart&&ipPart!==key){
+        const oldRes=await sb.from('cloud_saves').select('*').eq('slot_name',ipPart).maybeSingle();
+        if(oldRes.data&&oldRes.data.save_data){
+          // Migrate old save to new key, then delete old entry
+          const row={slot_name:key,char_name:oldRes.data.char_name,level:oldRes.data.level,
+            cls:oldRes.data.cls,save_data:oldRes.data.save_data,protected:false,pin:null,
+            updated_at:oldRes.data.updated_at};
+          await sb.from('cloud_saves').upsert(row,{onConflict:'slot_name'});
+          await sb.from('cloud_saves').delete().eq('slot_name',ipPart);
+          data=oldRes.data;
+        }
+      }
+    }
+
     if(!data||!data.save_data)return;
     const local=loadGame();
     const cloudTs=new Date(data.updated_at).getTime();

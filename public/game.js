@@ -133,8 +133,8 @@ async function accountLogin(){
     // Use gold+level as a tiebreaker — whichever save has more progress wins
     const localGold=(local?.G?.gold||0)+(local?.G?.level||0)*1000;
     const cloudGold=(res.saveData?.gold||0)+(res.saveData?.level||0)*1000;
-    if(hasLocal&&hasCloud&&cloudGold>localGold+5000){
-      // Cloud has significantly more progress — restore it
+    if(hasLocal&&hasCloud&&cloudGold>localGold){
+      // Cloud has more progress — restore it
       localStorage.setItem(SK,JSON.stringify({G:res.saveData,ts:cloudTs}));
       setCloudStatus('✓ Logged in! Cloud save restored.',true);
       renderAccountUI();
@@ -185,7 +185,7 @@ async function cloudAutoLoad(){
     const cloudTs=res.updatedAt?new Date(res.updatedAt).getTime():0;
     const cloudGold=(res.saveData?.gold||0)+(res.saveData?.level||0)*1000;
     const localGold=(local?.G?.gold||0)+(local?.G?.level||0)*1000;
-    if(!local||!local.G||!local.G.level||cloudGold>localGold+5000){
+    if(!local||!local.G||!local.G.level||cloudGold>localGold){
       localStorage.setItem(SK,JSON.stringify({G:res.saveData,ts:cloudTs}));
       location.reload();
     }

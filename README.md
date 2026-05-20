@@ -2,7 +2,8 @@
 
 **Souls · Idle · D&D** — A browser-based hybrid RPG.
 
-🎮 **[Play Now → ardenmoor.vercel.app](https://ardenmoor.vercel.app)**
+🎮 **[Play Now → hexoidle.vercel.app](https://hexoidle.vercel.app)**  
+🕹️ **[itch.io → zytheria.itch.io/hexo-idle](https://zytheria.itch.io/hexo-idle)**
 
 ---
 

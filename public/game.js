@@ -83,19 +83,15 @@ function setCloudStatus(msg,ok){
 let _cloudKey=null;
 async function getCloudKey(){
   if(_cloudKey)return _cloudKey;
-  // Stable per-browser UUID — generated once, stored in localStorage forever
-  let uid=localStorage.getItem('hexo_cloud_uid');
-  if(!uid){uid='u_'+Math.random().toString(36).slice(2,10)+Math.random().toString(36).slice(2,10);localStorage.setItem('hexo_cloud_uid',uid);}
-  // Try to mix in public IP so the same browser syncs across devices on the same connection
   try{
     const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),3000);
     const r=await fetch('https://api.ipify.org?format=json',{signal:ctrl.signal});
     clearTimeout(t);
     const d=await r.json();
-    const ip=d.ip.replace(/[^a-zA-Z0-9]/g,'_');
-    _cloudKey=ip+'_'+uid;
+    _cloudKey='ip_'+d.ip.replace(/[^a-zA-Z0-9]/g,'_');
   }catch(e){
-    // Offline / IP fetch failed — fall back to UUID-only (still unique per browser)
+    let uid=localStorage.getItem('hexo_cloud_uid');
+    if(!uid){uid='dev_'+Math.random().toString(36).slice(2,12);localStorage.setItem('hexo_cloud_uid',uid);}
     _cloudKey=uid;
   }
   const el=document.getElementById('cloud-key-val');if(el)el.textContent=_cloudKey;
@@ -122,24 +118,6 @@ async function cloudAutoLoad(){
   const key=await getCloudKey();if(!key)return;
   try{
     let{data}=await sb.from('cloud_saves').select('*').eq('slot_name',key).maybeSingle();
-
-    // Migration: if no save found under new key, check for old IP-only key (ip_x_x_x_x)
-    if(!data||!data.save_data){
-      const ipPart=key.split('_u_')[0]; // e.g. "1_2_3_4"
-      const oldKey='ip_'+ipPart;        // old format was "ip_1_2_3_4"
-      if(ipPart&&ipPart!==key){
-        const oldRes=await sb.from('cloud_saves').select('*').eq('slot_name',oldKey).maybeSingle();
-        if(oldRes.data&&oldRes.data.save_data){
-          // Copy save to new key, delete old entry
-          const row={slot_name:key,char_name:oldRes.data.char_name,level:oldRes.data.level,
-            cls:oldRes.data.cls,save_data:oldRes.data.save_data,protected:false,pin:null,
-            updated_at:oldRes.data.updated_at};
-          await sb.from('cloud_saves').upsert(row,{onConflict:'slot_name'});
-          await sb.from('cloud_saves').delete().eq('slot_name',oldKey);
-          data=oldRes.data;
-        }
-      }
-    }
 
     if(!data||!data.save_data)return;
     const local=loadGame();

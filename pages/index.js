@@ -10,16 +10,6 @@ export default function Home() {
         <title>HEXO IDLE — Souls · Idle · D&D</title>
       </Head>
 
-      {/* Inject Supabase credentials as window globals so game.js can read them */}
-      <Script id="sb-config" strategy="beforeInteractive">
-        {`window.__SB_URL="${process.env.NEXT_PUBLIC_SUPABASE_URL}";window.__SB_KEY="${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}";`}
-      </Script>
-
-      {/* Supabase JS SDK via CDN */}
-      <Script
-        src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"
-        strategy="beforeInteractive"
-      />
 
       <div
         dangerouslySetInnerHTML={{

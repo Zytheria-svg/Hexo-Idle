@@ -80,109 +80,149 @@ function setCloudStatus(msg,ok){
 }
 
 // Get or generate a stable per-device cloud key, then try to enrich with public IP
-let _cloudKey=null;
-function getCloudKey(){
-  if(_cloudKey)return _cloudKey;
-  let uid=localStorage.getItem('hexo_cloud_uid');
-  if(!uid){uid='hx_'+Math.random().toString(36).slice(2,8)+Math.random().toString(36).slice(2,8);localStorage.setItem('hexo_cloud_uid',uid);}
-  _cloudKey=uid;
-  const el=document.getElementById('cloud-key-val');if(el)el.textContent=_cloudKey;
-  return _cloudKey;
+// ═══════════════════════════════════════
+// ACCOUNT SYSTEM
+// ═══════════════════════════════════════
+const ACCT_KEY='hexo_account';
+function getLoggedInUser(){return localStorage.getItem(ACCT_KEY)||null;}
+
+async function hashPassword(pass){
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('hexo_'+pass));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
-function copyCloudCode(){
-  const key=getCloudKey();
-  navigator.clipboard.writeText(key).then(()=>setCloudStatus('✓ Code copied!',true)).catch(()=>setCloudStatus('Code: '+key,null));
+function setCloudStatus(msg,ok){
+  const el=document.getElementById('cloud-status');
+  if(!el)return;
+  el.textContent=msg;
+  el.style.color=ok===true?'var(--green3)':ok===false?'var(--red3)':'var(--txt3)';
 }
 
-async function cloudLinkDevice(){
-  const inp=document.getElementById('cloud-link-inp');
-  if(!inp)return;
-  const code=inp.value.trim();
-  if(!code){setCloudStatus('Enter a sync code first.',false);return;}
+function renderAccountUI(){
+  const user=getLoggedInUser();
+  const loggedIn=document.getElementById('acct-logged-in');
+  const loggedOut=document.getElementById('acct-logged-out');
+  const nameEl=document.getElementById('acct-username-display');
+  if(loggedIn)loggedIn.style.display=user?'block':'none';
+  if(loggedOut)loggedOut.style.display=user?'none':'block';
+  if(nameEl&&user)nameEl.textContent=user;
+}
+
+async function accountRegister(){
   const sb=getSB();if(!sb){setCloudStatus('Supabase not configured.',false);return;}
-  setCloudStatus('⏳ Looking up save…',null);
+  const u=(document.getElementById('acct-user-inp')?.value||'').trim().toLowerCase();
+  const p=document.getElementById('acct-pass-inp')?.value||'';
+  if(!u||u.length<3){setCloudStatus('Username must be at least 3 characters.',false);return;}
+  if(!p||p.length<4){setCloudStatus('Password must be at least 4 characters.',false);return;}
+  if(!/^[a-z0-9_]+$/.test(u)){setCloudStatus('Username: letters, numbers and _ only.',false);return;}
+  setCloudStatus('⏳ Creating account…',null);
   try{
-    const{data,error}=await sb.from('cloud_saves').select('*').eq('slot_name',code).maybeSingle();
+    const{data:existing}=await sb.from('cloud_saves').select('slot_name').eq('slot_name',u).maybeSingle();
+    if(existing){setCloudStatus('✗ Username already taken.',false);return;}
+    const hash=await hashPassword(p);
+    const row={slot_name:u,char_name:'',level:1,cls:'',
+      save_data:{__pwHash:hash},protected:false,pin:null,updated_at:new Date().toISOString()};
+    const{error}=await sb.from('cloud_saves').insert(row);
     if(error)throw error;
-    if(!data||!data.save_data){setCloudStatus('✗ No save found for that code.',false);return;}
-    localStorage.setItem('hexo_cloud_uid',code);
-    localStorage.setItem(SK,JSON.stringify({G:data.save_data,ts:Date.now()}));
-    setCloudStatus('✓ Linked! Loading save…',true);
-    setTimeout(()=>location.reload(),800);
-  }catch(e){setCloudStatus('✗ Failed: '+e.message,false);}
+    localStorage.setItem(ACCT_KEY,u);
+    setCloudStatus('✓ Account created! Logged in as '+u,true);
+    renderAccountUI();
+  }catch(e){setCloudStatus('✗ '+e.message,false);}
+}
+
+async function accountLogin(){
+  const sb=getSB();if(!sb){setCloudStatus('Supabase not configured.',false);return;}
+  const u=(document.getElementById('acct-user-inp')?.value||'').trim().toLowerCase();
+  const p=document.getElementById('acct-pass-inp')?.value||'';
+  if(!u||!p){setCloudStatus('Enter username and password.',false);return;}
+  setCloudStatus('⏳ Logging in…',null);
+  try{
+    const{data,error}=await sb.from('cloud_saves').select('*').eq('slot_name',u).maybeSingle();
+    if(error)throw error;
+    if(!data){setCloudStatus('✗ Account not found.',false);return;}
+    const hash=await hashPassword(p);
+    const storedHash=data.save_data?.__pwHash;
+    if(!storedHash||storedHash!==hash){setCloudStatus('✗ Wrong password.',false);return;}
+    localStorage.setItem(ACCT_KEY,u);
+    // Load cloud save if it has actual game data
+    const saveData={...data.save_data};delete saveData.__pwHash;
+    if(saveData&&saveData.level){
+      const local=loadGame();
+      const cloudTs=new Date(data.updated_at).getTime();
+      const localTs=local?.ts||0;
+      if(!local||cloudTs>localTs+60000){
+        localStorage.setItem(SK,JSON.stringify({G:saveData,ts:cloudTs}));
+        setCloudStatus('✓ Logged in! Loading save…',true);
+        renderAccountUI();
+        setTimeout(()=>location.reload(),800);
+        return;
+      }
+    }
+    setCloudStatus('✓ Logged in as '+u,true);
+    renderAccountUI();
+  }catch(e){setCloudStatus('✗ '+e.message,false);}
+}
+
+function accountLogout(){
+  localStorage.removeItem(ACCT_KEY);
+  setCloudStatus('Logged out.',null);
+  renderAccountUI();
 }
 
 // Silent auto-save — called from queueSave()
 async function cloudAutoSave(){
   if(!G)return;
   const sb=getSB();if(!sb)return;
-  const key=getCloudKey();if(!key)return;
+  const user=getLoggedInUser();if(!user)return;
   try{
-    const row={slot_name:key,char_name:G.charName||'Hero',level:G.level||1,cls:G.cls||'rogue',
-      save_data:G,protected:false,pin:null,updated_at:new Date().toISOString()};
+    // Preserve password hash when saving
+    const{data:existing}=await sb.from('cloud_saves').select('save_data').eq('slot_name',user).maybeSingle();
+    const pwHash=existing?.save_data?.__pwHash||'';
+    const row={slot_name:user,char_name:G.charName||'Hero',level:G.level||1,cls:G.cls||'rogue',
+      save_data:{...G,__pwHash:pwHash},protected:false,pin:null,updated_at:new Date().toISOString()};
     const{error}=await sb.from('cloud_saves').upsert(row,{onConflict:'slot_name'});
     if(error)throw error;
     setCloudStatus('☁ Synced just now',true);
   }catch(e){setCloudStatus('⚠ Sync failed',false);}
 }
 
-// On startup: auto-restore cloud save if newer than local
+// On startup: auto-restore cloud save if logged in and cloud is newer
 async function cloudAutoLoad(){
   const sb=getSB();if(!sb)return;
-  const key=getCloudKey();if(!key)return;
+  const user=getLoggedInUser();if(!user)return;
   try{
-    let{data}=await sb.from('cloud_saves').select('*').eq('slot_name',key).maybeSingle();
-
-    // Migration: check old IP-based key format for existing players
-    if(!data||!data.save_data){
-      try{
-        const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),3000);
-        const r=await fetch('https://api.ipify.org?format=json',{signal:ctrl.signal});
-        clearTimeout(t);
-        const d=await r.json();
-        const oldKey='ip_'+d.ip.replace(/[^a-zA-Z0-9]/g,'_');
-        const old=await sb.from('cloud_saves').select('*').eq('slot_name',oldKey).maybeSingle();
-        if(old.data&&old.data.save_data){
-          // Migrate to new UUID key
-          const row={slot_name:key,char_name:old.data.char_name,level:old.data.level,
-            cls:old.data.cls,save_data:old.data.save_data,protected:false,pin:null,
-            updated_at:old.data.updated_at};
-          await sb.from('cloud_saves').upsert(row,{onConflict:'slot_name'});
-          await sb.from('cloud_saves').delete().eq('slot_name',oldKey);
-          data=old.data;
-        }
-      }catch(e){}
-    }
-
+    const{data}=await sb.from('cloud_saves').select('*').eq('slot_name',user).maybeSingle();
     if(!data||!data.save_data)return;
+    const saveData={...data.save_data};delete saveData.__pwHash;
+    if(!saveData||!saveData.level)return;
     const local=loadGame();
     const cloudTs=new Date(data.updated_at).getTime();
     const localTs=local?.ts||0;
     if(!local||cloudTs>localTs+60000){
-      localStorage.setItem(SK,JSON.stringify({G:data.save_data,ts:cloudTs}));
+      localStorage.setItem(SK,JSON.stringify({G:saveData,ts:cloudTs}));
       location.reload();
     }
   }catch(e){}
 }
 
-// Manual force-sync from settings
+// Manual force-sync
 async function cloudForceSave(){
   if(!G){setCloudStatus('No active game to sync.',false);return;}
+  if(!getLoggedInUser()){setCloudStatus('Log in to sync.',false);return;}
   setCloudStatus('⏳ Syncing…',null);
   await cloudAutoSave();
 }
 
-// Manual restore from settings
 async function cloudForceLoad(){
   const sb=getSB();if(!sb){setCloudStatus('Supabase not configured.',false);return;}
-  const key=getCloudKey();if(!key)return;
+  const user=getLoggedInUser();if(!user){setCloudStatus('Log in first.',false);return;}
   setCloudStatus('⏳ Loading from cloud…',null);
   try{
-    const{data,error}=await sb.from('cloud_saves').select('*').eq('slot_name',key).maybeSingle();
+    const{data,error}=await sb.from('cloud_saves').select('*').eq('slot_name',user).maybeSingle();
     if(error)throw error;
     if(!data||!data.save_data){setCloudStatus('✗ No cloud save found.',false);return;}
-    localStorage.setItem(SK,JSON.stringify({G:data.save_data,ts:Date.now()}));
+    const saveData={...data.save_data};delete saveData.__pwHash;
+    localStorage.setItem(SK,JSON.stringify({G:saveData,ts:Date.now()}));
     setCloudStatus('✓ Restored! Restarting…',true);
     setTimeout(()=>location.reload(),800);
   }catch(e){setCloudStatus('✗ Restore failed: '+e.message,false);}
@@ -191,7 +231,7 @@ async function cloudForceLoad(){
 // ═══════════════════════════════════════
 // SETTINGS
 // ═══════════════════════════════════════
-function openSettings(){document.getElementById('settings-panel').classList.add('open');syncThemeBtn();getCloudKey();}
+function openSettings(){document.getElementById('settings-panel').classList.add('open');syncThemeBtn();renderAccountUI();}
 function togglePatchNotes(){const b=document.getElementById('patch-notes-box');if(b){const shown=b.style.display!=='none';b.style.display=shown?'none':'block';if(!shown)b.scrollIntoView({behavior:'smooth',block:'center'});}}
 function closeSettings(){document.getElementById('settings-panel').classList.remove('open');}
 

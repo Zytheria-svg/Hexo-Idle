@@ -59,25 +59,28 @@ export default function Home() {
       <div style="padding:10px 13px;background:var(--bg2);border-radius:9px;border:1px solid var(--bord)">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
           <span style="font-size:14px">☁</span>
-          <span style="font-size:12px;font-weight:600;color:var(--txt);font-family:var(--font-d);letter-spacing:.3px">Cloud Sync</span>
-          <span style="font-size:9.5px;color:var(--green3);font-style:italic">— automatic</span>
+          <span style="font-size:12px;font-weight:600;color:var(--txt);font-family:var(--font-d);letter-spacing:.3px">Cloud Account</span>
         </div>
-        <div style="font-size:9.5px;color:var(--txt3);font-family:var(--font-m);margin-bottom:8px;padding:5px 8px;background:var(--bg3);border-radius:5px;line-height:1.6">Your save syncs automatically across <b>any network</b>. To play on another device, copy your Sync Code and paste it there.</div>
-        <div style="font-size:9px;color:var(--txt3);font-family:var(--font-m);margin-bottom:6px;padding:5px 8px;background:var(--bg3);border-radius:5px;display:flex;align-items:center;gap:6px">
-          <span>🔑 Sync Code:</span>
-          <span id="cloud-key-val" style="color:var(--gold2);font-family:var(--font-d);letter-spacing:.5px;flex:1">loading…</span>
-          <button class="btn btn-primary" style="font-size:9px;padding:2px 7px" onclick="copyCloudCode()">Copy</button>
-        </div>
-        <div style="font-size:9px;color:var(--txt3);font-family:var(--font-m);margin-bottom:6px;padding:5px 8px;background:var(--bg3);border-radius:5px">
-          <div style="margin-bottom:5px;color:var(--txt2)">🔗 Link another device — paste its Sync Code:</div>
-          <div style="display:flex;gap:5px">
-            <input id="cloud-link-inp" type="text" placeholder="Paste sync code here…" style="flex:1;font-size:10px;padding:4px 7px;background:var(--bg);border:1px solid var(--bord2);border-radius:4px;color:var(--txt);font-family:var(--font-m)">
-            <button class="btn btn-gold" style="font-size:10px;padding:4px 9px" onclick="cloudLinkDevice()">Link</button>
+        <!-- Logged out -->
+        <div id="acct-logged-out">
+          <div style="font-size:9.5px;color:var(--txt3);margin-bottom:8px;padding:5px 8px;background:var(--bg3);border-radius:5px;line-height:1.6">Create an account to save your progress and play from any device on any network.</div>
+          <input id="acct-user-inp" type="text" placeholder="Username" autocomplete="off" style="width:100%;box-sizing:border-box;font-size:11px;padding:6px 9px;background:var(--bg);border:1px solid var(--bord2);border-radius:5px;color:var(--txt);font-family:var(--font-m);margin-bottom:6px">
+          <input id="acct-pass-inp" type="password" placeholder="Password" autocomplete="off" style="width:100%;box-sizing:border-box;font-size:11px;padding:6px 9px;background:var(--bg);border:1px solid var(--bord2);border-radius:5px;color:var(--txt);font-family:var(--font-m);margin-bottom:6px">
+          <div style="display:flex;gap:6px;margin-bottom:6px">
+            <button class="btn btn-primary" style="flex:1;font-size:11px;padding:6px 0" onclick="accountLogin()">Log In</button>
+            <button class="btn btn-gold" style="flex:1;font-size:11px;padding:6px 0" onclick="accountRegister()">Register</button>
           </div>
         </div>
-        <div style="display:flex;gap:6px;margin-bottom:6px">
-          <button class="btn btn-primary" style="flex:1;font-size:11px;padding:6px 0" onclick="cloudForceSave()">☁ Sync Now</button>
-          <button class="btn btn-gold" style="flex:1;font-size:11px;padding:6px 0" onclick="cloudForceLoad()">⬇ Restore from Cloud</button>
+        <!-- Logged in -->
+        <div id="acct-logged-in" style="display:none">
+          <div style="font-size:10px;color:var(--txt3);margin-bottom:8px;padding:6px 9px;background:var(--bg3);border-radius:5px">
+            Logged in as <b style="color:var(--gold2);font-family:var(--font-d)" id="acct-username-display"></b> — saves sync automatically.
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:6px">
+            <button class="btn btn-primary" style="flex:1;font-size:11px;padding:6px 0" onclick="cloudForceSave()">☁ Sync Now</button>
+            <button class="btn btn-gold" style="flex:1;font-size:11px;padding:6px 0" onclick="cloudForceLoad()">⬇ Restore</button>
+          </div>
+          <button class="btn" style="width:100%;font-size:10px;padding:5px 0;margin-bottom:6px;color:var(--txt3)" onclick="accountLogout()">Log Out</button>
         </div>
         <div id="cloud-status" style="font-size:10.5px;font-family:var(--font-m);min-height:16px;padding:4px 7px;background:var(--bg3);border-radius:5px;color:var(--txt3)"></div>
       </div>
